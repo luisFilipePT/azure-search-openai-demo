@@ -11,7 +11,7 @@ param location string
 
 param appServicePlanName string = ''
 param backendServiceName string = ''
-param resourceGroupName string = ''
+param resourceGroupName string = 'microssoft-demo-openai'
 
 param searchServiceName string = ''
 param searchServiceResourceGroupName string = ''
@@ -25,8 +25,8 @@ param storageResourceGroupName string = ''
 param storageResourceGroupLocation string = location
 param storageContainerName string = 'content'
 
-param openAiServiceName string = ''
-param openAiResourceGroupName string = ''
+param openAiServiceName string = 'openai-service-impactai'
+param openAiResourceGroupName string = 'microssoft-demo-openai'
 param openAiResourceGroupLocation string = location
 
 param openAiSkuName string = 'S0'
@@ -37,10 +37,10 @@ param formRecognizerResourceGroupLocation string = location
 
 param formRecognizerSkuName string = 'S0'
 
-param gptDeploymentName string = ''
+param gptDeploymentName string = 'davinci'
 param gptDeploymentCapacity int = 30
 param gptModelName string = 'text-davinci-003'
-param chatGptDeploymentName string = ''
+param chatGptDeploymentName string = 'testing-3-5-gpt'
 param chatGptDeploymentCapacity int = 30
 param chatGptModelName string = 'gpt-35-turbo'
 
