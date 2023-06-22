@@ -7,11 +7,14 @@ import openai
 from flask import Flask, request, jsonify, send_file, abort
 from azure.identity import DefaultAzureCredential
 from azure.search.documents import SearchClient
+from azure.search.documents.indexes import SearchIndexClient
+from ingestion.ingest import Ingest
 from approaches.retrievethenread import RetrieveThenReadApproach
 from approaches.readretrieveread import ReadRetrieveReadApproach
 from approaches.readdecomposeask import ReadDecomposeAsk
 from approaches.chatreadretrieveread import ChatReadRetrieveReadApproach
 from azure.storage.blob import BlobServiceClient
+
 
 # Replace these with your own values, either in environment variables or directly here
 AZURE_STORAGE_ACCOUNT = os.environ.get("AZURE_STORAGE_ACCOUNT") or "mystorageaccount"
@@ -46,10 +49,14 @@ openai_token = azure_credential.get_token(
 )
 openai.api_key = openai_token.token
 
-# Set up clients for Cognitive Search and Storage
+# Set up clients for Cognitive Search, Storage and Index
 search_client = SearchClient(
     endpoint=f"https://{AZURE_SEARCH_SERVICE}.search.windows.net",
     index_name=AZURE_SEARCH_INDEX,
+    credential=azure_credential,
+)
+search_index_client = SearchIndexClient(
+    endpoint=f"https://{AZURE_SEARCH_SERVICE}.search.windows.net/",
     credential=azure_credential,
 )
 blob_client = BlobServiceClient(
@@ -90,6 +97,10 @@ chat_approaches = {
         KB_FIELDS_CONTENT,
     )
 }
+
+ingestion = Ingest(
+    AZURE_SEARCH_INDEX, search_index_client, blob_container, search_client
+)
 
 app = Flask(__name__)
 
@@ -151,6 +162,13 @@ def chat():
     except Exception as e:
         logging.exception("Exception in /chat")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/ingest")
+def ingest():
+    ingestion.run()
+
+    return jsonify({"message": "ingesting"})
 
 
 def ensure_openai_token():
