@@ -114,27 +114,38 @@ class Ingest:
 
     def create_sections(self, filename, page_map):
         print(f"Splitting '{filename}' into sections")
-        splitter = RecursiveCharacterTextSplitter(
-            chunk_size=MAX_SECTION_LENGTH,
-            chunk_overlap=SECTION_OVERLAP,
-        )
 
-        all_text = "".join(p[2] for p in page_map)
-        text_sections = splitter.create_documents([all_text])
-
-        sections = [
-            {
+        for i, (section, pagenum) in enumerate(split_text(page_map)):
+            yield {
                 "id": re.sub("[^0-9a-zA-Z_-]", "_", f"{filename}-{i}"),
-                "content": section.page_content,
+                "content": section,
                 "category": "",
-                "sourcepage": self.blob_name_from_file_page(
-                    filename
-                ),  # XXX: Page number isn't working
-                "sourcefile": filename,
+                "sourcepage": self.blob_name_from_file_page(filename, pagenum),
+                "sourcefile": filename
             }
-            for i, section in enumerate(text_sections)
-        ]
-        return sections
+
+        # splitter = RecursiveCharacterTextSplitter(
+        #     chunk_size=MAX_SECTION_LENGTH,
+        #     chunk_overlap=SECTION_OVERLAP,
+        # )
+        #
+        # all_text = "".join(p[2] for p in page_map)
+        #
+        # text_sections = splitter.create_documents([all_text])
+        #
+        # sections = [
+        #     {
+        #         "id": re.sub("[^0-9a-zA-Z_-]", "_", f"{filename}-{i}"),
+        #         "content": section.page_content,
+        #         "category": "",
+        #         "sourcepage": self.blob_name_from_file_page(
+        #             filename
+        #         ),  # XXX: Page number isn't working
+        #         "sourcefile": filename,
+        #     }
+        #     for i, section in enumerate(text_sections)
+        # ]
+        # return sections
 
     def index_sections(self, filename, sections):
         print(f"Indexing sections from '{filename}' into search index '{self.index}'")
@@ -165,3 +176,64 @@ class Ingest:
             page_map = self.get_document_text(filename)
             sections = self.create_sections(os.path.basename(filename), page_map)
             self.index_sections(os.path.basename(filename), sections)
+
+
+def split_text(page_map):
+    SENTENCE_ENDINGS = [".", "!", "?"]
+    WORDS_BREAKS = [",", ";", ":", " ", "(", ")", "[", "]", "{", "}", "\t", "\n"]
+
+    def find_page(offset):
+        l = len(page_map)
+        for i in range(l - 1):
+            if offset >= page_map[i][1] and offset < page_map[i + 1][1]:
+                return i
+        return l - 1
+
+    all_text = "".join(p[2] for p in page_map)
+    length = len(all_text)
+    start = 0
+    end = length
+    while start + SECTION_OVERLAP < length:
+        last_word = -1
+        end = start + MAX_SECTION_LENGTH
+
+        if end > length:
+            end = length
+        else:
+            # Try to find the end of the sentence
+            while end < length and (end - start - MAX_SECTION_LENGTH) < SENTENCE_SEARCH_LIMIT and all_text[
+                end] not in SENTENCE_ENDINGS:
+                if all_text[end] in WORDS_BREAKS:
+                    last_word = end
+                end += 1
+            if end < length and all_text[end] not in SENTENCE_ENDINGS and last_word > 0:
+                end = last_word  # Fall back to at least keeping a whole word
+        if end < length:
+            end += 1
+
+        # Try to find the start of the sentence or at least a whole word boundary
+        last_word = -1
+        while start > 0 and start > end - MAX_SECTION_LENGTH - 2 * SENTENCE_SEARCH_LIMIT and all_text[
+            start] not in SENTENCE_ENDINGS:
+            if all_text[start] in WORDS_BREAKS:
+                last_word = start
+            start -= 1
+        if all_text[start] not in SENTENCE_ENDINGS and last_word > 0:
+            start = last_word
+        if start > 0:
+            start += 1
+
+        section_text = all_text[start:end]
+        yield (section_text, find_page(start))
+
+        last_table_start = section_text.rfind("<table")
+        if (last_table_start > 2 * SENTENCE_SEARCH_LIMIT and last_table_start > section_text.rfind("</table")):
+            # If the section ends with an unclosed table, we need to start the next section with the table.
+            # If table starts inside SENTENCE_SEARCH_LIMIT, we ignore it, as that will cause an infinite loop for tables longer than MAX_SECTION_LENGTH
+            # If last table starts inside SECTION_OVERLAP, keep overlapping
+            start = min(end - SECTION_OVERLAP, start + last_table_start)
+        else:
+            start = end - SECTION_OVERLAP
+
+    if start + SECTION_OVERLAP < end:
+        yield (all_text[start:end], find_page(start))
